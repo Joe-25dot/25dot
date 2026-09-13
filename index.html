@@ -459,6 +459,19 @@
   .podium-name{flex:1; font-weight:700; font-size:17px;}
   .podium-dots{font-family:'Big Shoulders Display', sans-serif; font-weight:800; font-size:30px; color:var(--turf);}
 
+  .topbar-right{display:flex; flex-direction:column; align-items:flex-end; gap:4px;}
+  .reset-link{
+    background:none;
+    border:none;
+    color:#e0b3ab;
+    font-size:11px;
+    font-weight:600;
+    text-decoration:underline;
+    padding:0;
+    letter-spacing:0.2px;
+  }
+  .reset-link:active{color:#f0d3cd;}
+
   ::-webkit-scrollbar{width:0; height:0;}
 </style>
 </head>
@@ -468,7 +481,10 @@
   <div>
     <div class="brand">25<span class="dot-mark">·</span>Dot</div>
   </div>
-  <div class="sub" id="topbarSub"></div>
+  <div class="topbar-right">
+    <div class="sub" id="topbarSub"></div>
+    <button class="reset-link" id="resetBtn" type="button">Reset round</button>
+  </div>
 </div>
 
 <div class="screen" id="screen"></div>
@@ -485,15 +501,42 @@ const HOLES = [
 ];
 const SLOTS = [9,7,5,3,1];
 const NUM_PLAYERS = 5;
+const STORAGE_KEY = '25dot-round-v1';
+
+/* ---------------- Persistence ---------------- */
+function freshState(){
+  return {
+    phase: 'setup',
+    players: [],
+    scores: Array.from({length:18}, () => Array(NUM_PLAYERS).fill(null)),
+    currentHole: 0,
+    activeTab: 'score'
+  };
+}
+
+function persist(){
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    // Storage unavailable (private browsing, full quota, etc). Scores still
+    // work for the current session, they just won't survive a reload.
+  }
+}
+
+function loadPersisted(){
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.players) || !Array.isArray(parsed.scores)) return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
 
 /* ---------------- State ---------------- */
-let state = {
-  phase: 'setup', // setup | play | final
-  players: [], // {name, hcp}
-  scores: Array.from({length:18}, () => Array(NUM_PLAYERS).fill(null)),
-  currentHole: 0,
-  activeTab: 'score' // score | board
-};
+let state = loadPersisted() || freshState();
 
 // signedHcp: positive = receives strokes (allocated from hardest hole, si 1, upward)
 //            negative = plus handicap, gives strokes back (allocated from easiest hole, si 18, downward)
@@ -592,6 +635,7 @@ const screen = document.getElementById('screen');
 const topbarSub = document.getElementById('topbarSub');
 
 function render(){
+  persist();
   if (state.phase === 'setup') renderSetup();
   else if (state.phase === 'play') renderPlay();
   else renderFinal();
@@ -637,12 +681,14 @@ function renderSetup(){
   fields.querySelectorAll('.nameInput').forEach(inp => {
     inp.addEventListener('input', e => {
       state.players[+e.target.dataset.i].name = e.target.value;
+      persist();
       checkStartEnabled();
     });
   });
   fields.querySelectorAll('.hcpInput').forEach(inp => {
     inp.addEventListener('input', e => {
       state.players[+e.target.dataset.i].hcp = Math.abs(parseFloat(e.target.value) || 0);
+      persist();
     });
   });
   fields.querySelectorAll('.sign-toggle').forEach(btn => {
@@ -651,6 +697,7 @@ function renderSetup(){
       state.players[i].plus = !state.players[i].plus;
       e.target.classList.toggle('plus', state.players[i].plus);
       e.target.textContent = state.players[i].plus ? '+' : '\u2212';
+      persist();
     });
   });
 
@@ -756,6 +803,7 @@ function renderPlay(){
         state.scores[state.currentHole][i] = newVal;
         valEl.textContent = newVal;
         metaEl.innerHTML = `Net ${netScore(newVal, hcp, hole.si)}${strokePipHtml(strokes)}`;
+        persist();
         updateNextButton();
         updateTotalsBar();
         updateHoleDots();
@@ -917,6 +965,15 @@ function escapeHtml(str){
   div.textContent = str;
   return div.innerHTML;
 }
+
+function handleReset(){
+  const ok = window.confirm('Erase all scores and player info, and start a brand new round? This cannot be undone.');
+  if (!ok) return;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  state = freshState();
+  render();
+}
+document.getElementById('resetBtn').addEventListener('click', handleReset);
 
 render();
 </script>
